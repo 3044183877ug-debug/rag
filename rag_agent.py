@@ -8,6 +8,8 @@ RAG 税务问答 Agent：
 4. 提供控制台交互式问答
 
 自适应策略：
+- 查询转换：用 LLM 将模糊问题改写为精准检索查询
+- 多路检索：原始问题 + 改写查询各检索一次，合并去重
 - 检索相似度 >= 0.5 → 走 RAG（基于资料库回答）
 - 检索相似度 < 0.5 → 降级为 LLM 自身知识回答（标注参考资料不足）
 """
@@ -121,7 +123,7 @@ def format_docs(docs):
 
 
 class AdaptiveRAGChain:
-    """自适应 RAG 链：根据检索质量自动选择 RAG 或直接回答"""
+    """自适应 RAG 链：查询转换 + 多路检索 + 质量判断"""
 
     def __init__(self, vectorstore, rag_prompt, direct_prompt, llm, threshold=0.5):
         self.vectorstore = vectorstore
@@ -131,13 +133,68 @@ class AdaptiveRAGChain:
         self.threshold = threshold
         self.output_parser = StrOutputParser()
 
-    def invoke(self, question: str) -> str:
-        # 第一步：检索（带相似度分数）
-        docs_with_scores = self.vectorstore.similarity_search_with_score(
-            question, k=4
+    # ── 查询转换提示词 ──────────────────────────────────────────
+    QUERY_REWRITE_PROMPT = ChatPromptTemplate.from_messages([
+        ("system",
+         "你是一个查询改写助手。用户会用日常语言提出税务问题，"
+         "你的任务是把问题改写为更适合向量检索的查询语句。\n\n"
+         "规则：\n"
+         "1. 将指代不明的词替换为具体法律术语（如\"第三条\"→\"个人所得税法第三条\"、\"那个税\"→\"契税\"）\n"
+         "2. 如果用户提到了\"某个法\"、\"某条\"但没有说是哪部法，基于知识库中已有的法律推断\n"
+         "3. 如果问题本身已经很明确，直接返回原文\n"
+         "4. 只输出改写后的查询，不要加任何解释\n\n"
+         "知识库中已有的法律：\n"
+         "- 中华人民共和国增值税法\n"
+         "- 中华人民共和国契税法\n"
+         "- 中华人民共和国企业所得税法\n"
+         "- 中华人民共和国个人所得税法"),
+        ("human", "原始问题：{question}\n\n改写后的查询："),
+    ])
+
+    def _rewrite_query(self, question: str) -> str:
+        """用 LLM 将用户问题改写为更适合检索的查询"""
+        try:
+            messages = self.QUERY_REWRITE_PROMPT.format_messages(question=question)
+            response = self.llm.invoke(messages)
+            rewritten = self.output_parser.invoke(response).strip()
+            # 防止 LLM 输出空或过长
+            if rewritten and len(rewritten) <= 200:
+                return rewritten
+            return question
+        except Exception:
+            return question
+
+    def _multi_search(self, question: str, k: int = 4):
+        """多路检索：原始问题 + 改写查询，合并去重取最佳"""
+        # 改写查询
+        rewritten = self._rewrite_query(question)
+
+        # 两路检索
+        results_original = self.vectorstore.similarity_search_with_score(
+            question, k=k
         )
-        docs = [d for d, _ in docs_with_scores]
-        scores = [s for _, s in docs_with_scores]
+        if rewritten != question:
+            print(f"  🔍 查询转换: \"{question}\" -> \"{rewritten}\"")
+            results_rewritten = self.vectorstore.similarity_search_with_score(
+                rewritten, k=k
+            )
+        else:
+            results_rewritten = []
+
+        # 合并去重（按 page_content 去重，保留分数更低的）
+        seen = {}
+        for doc, score in results_original + results_rewritten:
+            key = doc.page_content[:100]  # 用前100字符作为去重标识
+            if key not in seen or score < seen[key][1]:
+                seen[key] = (doc, score)
+
+        # 按分数升序（分数越低相似度越高），取前 k 条
+        merged = sorted(seen.values(), key=lambda x: x[1])[:k]
+        return [d for d, _ in merged], [s for _, s in merged]
+
+    def invoke(self, question: str) -> str:
+        # 第一步：多路检索（原始问题 + 改写查询）
+        docs, scores = self._multi_search(question, k=4)
 
         # 打印检索结果供调试
         print(f"  📊 检索相似度: {[round(s, 4) for s in scores]}")
@@ -175,24 +232,25 @@ print("  输入 'quit' 或 'exit' 退出")
 print("=" * 60)
 print()
 
-while True:
-    try:
-        user_input = input("[?] 请输入您的问题: ").strip()
-    except (EOFError, KeyboardInterrupt):
-        print("\n  再见！")
-        break
+if __name__ == "__main__":
+    while True:
+        try:
+            user_input = input("[?] 请输入您的问题: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n  再见！")
+            break
 
-    if user_input.lower() in ("quit", "exit", "q"):
-        print("  再见！")
-        break
+        if user_input.lower() in ("quit", "exit", "q"):
+            print("  再见！")
+            break
 
-    if not user_input:
-        continue
+        if not user_input:
+            continue
 
-    print(f"\n[思考中] 正在检索并生成回答...\n")
+        print(f"\n[思考中] 正在检索并生成回答...\n")
 
-    try:
-        answer = rag_chain.invoke(user_input)
-        print(f"[回答]:\n{answer}\n")
-    except Exception as e:
-        print(f"[错误]: {e}\n")
+        try:
+            answer = rag_chain.invoke(user_input)
+            print(f"[回答]:\n{answer}\n")
+        except Exception as e:
+            print(f"[错误]: {e}\n")
