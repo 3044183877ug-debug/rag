@@ -1,0 +1,22 @@
+# 虚拟环境
+.venv/
+
+# 环境变量（含 API Key）
+.env
+
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+
+# VS Code
+.vscode/
+
+# Claude
+.claude/
+
+# 临时文件
+tempCodeRunnerFile.py
+
+# Chroma 数据库（本地向量库，如需上传请删除此行）
+# chroma_db/
