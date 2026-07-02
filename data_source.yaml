@@ -1,0 +1,124 @@
+# data_sources.yaml
+
+# ────────────────────────────────────────────────────────────────
+# 第一部分：具体政策、公告与实施细则（后缀已统一修改为 .txt）
+# ────────────────────────────────────────────────────────────────
+
+# ────────────────────────────────────────────────────────────────
+# 研发费用加计扣除政策“家族树”（主从继承与历史版本）
+# ────────────────────────────────────────────────────────────────
+
+# 👨‍💻 【底层基石法 1：管辖全盘核心范围】
+  - file_name: "财税2015_119号_研发加计扣除母法.txt"
+    policy_name: "关于完善研究开发费用税前加计扣除政策的通知"
+    source: "财税〔2015〕119号"
+    doc_type: "核心基准文件"
+    status: "现行有效"
+    date_published: "2015-11-02"
+    date_effective: "2016-01-01"
+    url: "https://www.chinatax.gov.cn/chinatax/n810341/n810765/n1990035/201601/c2184730/content.html"
+    applicable_scope: "界定研发活动的定义、人员人工、直接投入等6大类费用的归集口径，以及负面清单行业。"
+
+# 👨‍💻 【底层基石法 2：管辖境外研发特例】
+  - file_name: "财税2018_64号_委托境外研发.txt"
+    policy_name: "关于企业委托境外研究开发费用税前加计扣除有关政策问题的通知"
+    source: "财税〔2018〕64号"
+    doc_type: "核心基准文件"
+    status: "现行有效"
+    date_published: "2018-06-25"
+    date_effective: "2018-01-01"
+    url: "https://www.gov.cn/zhengce/zhengceku/2018-12/31/content_5442063.htm"
+    applicable_scope: "明确委托境外进行研发活动所发生费用的加计扣除规则（按实际发生额的80%计入，且不超过境内符合条件研发费用的三分之二）。"
+
+# 🌟 【现行有效补丁：管辖当前最新比例】
+  - file_name: "财税2023_7号_研发加计扣除现行比例.txt"
+    policy_name: "关于进一步完善研发费用税前加计扣除政策的公告"
+    source: "财政部 税务总局 科技部公告2023年第7号"
+    doc_type: "最新比例更新公告"
+    status: "现行有效"
+    date_published: "2023-03-26"
+    date_effective: "2023-01-01"
+    url: "https://www.gov.cn/zhengce/zhengceku/2023-03/28/content_5748747.htm"
+    applicable_scope: "作为最新参数补丁，规定自2023年1月1日起，所有符合条件企业的加计扣除比例统一提升为100%。"
+
+# 个税专项附加扣除最新标准
+# 👨‍💻 【底层基石法：个税专项附加扣除母法】
+  - file_name: "国发2018_41号_个税专项扣除暂行办法.txt"
+    policy_name: "国务院关于印发个人所得税专项附加扣除暂行办法的通知"
+    source: "国发〔2018〕41号"
+    doc_type: "核心基准文件"
+    status: "现行有效"
+    date_published: "2018-12-13"
+    date_effective: "2019-01-01"
+    url: "https://www.gov.cn/zhengce/content/2018-12/22/content_5351181.htm"
+    applicable_scope: "界定个人所得税子女教育、继续教育、大病医疗、住房贷款利息或者住房租金、赡养老人等6项专项附加扣除的具体范围、判定条件、操作规则与核算方式。"
+
+  - file_name: "国发2023_13号_个税专项扣除.txt"
+    source_name: "国务院关于提高个人所得税有关专项附加扣除标准的通知"
+    source_number: "国发〔2023〕13号"
+    doc_type: "国务院通知"
+    date_published: "2023-08-31"
+    date_effective: "2023-01-01"
+    url: "https://www.gov.cn/zhengce/content/202308/content_6901206.htm"
+    applicable_scope: ["个人所得税", "专项附加扣除", "子女教育", "婴幼儿照护", "赡养老人"]
+
+# 小微企业增值税优惠衔接 (配合2026新法)
+  - file_name: "财税2026_10号_小微增值税衔接.txt"
+    source_name: "关于增值税法施行后增值税优惠政策衔接事项的公告"
+    source_number: "财政部 税务总局公告2026年第10号"
+    doc_type: "部门公告"
+    date_published: "2026-01-31"
+    date_effective: "2026-01-01"
+    url: "https://www.mof.gov.cn/jrttts/202602/t20260203_3983175.htm"
+    applicable_scope: ["增值税", "小微企业", "小规模纳税人", "起征点", "免税"]
+
+# 小微企业及个体工商户所得税优惠
+  - file_name: "财税2023_12号_小微所得税优惠.txt"
+    source_name: "关于进一步支持小微企业和个体工商户发展有关税费政策的公告"
+    source_number: "财政部 税务总局公告2023年第12号"
+    doc_type: "部门公告"
+    date_published: "2023-08-02"
+    date_effective: "2023-01-01"
+    url: "https://fgk.chinatax.gov.cn/zcfgk/c102416/c5210453/content.html"
+    topic: ["企业所得税", "个人所得税", "小微企业", "个体工商户", "减半征收"]
+
+
+# ────────────────────────────────────────────────────────────────
+# 第二部分：四大税收基本法（新增，依据您指定的文件名）
+# ────────────────────────────────────────────────────────────────
+
+# 个人所得税基本法 (基于2018年最新修订版)
+  - file_name: "中华人民共和国个人所得税法.pdf"
+    source_name: "中华人民共和国个人所得税法"
+    doc_type: "国家法律"
+    date_published: "2018-08-31"
+    date_effective: "2019-01-01"
+    url: "https://www.chinatax.gov.cn/n810219/n810744/n3752930/n3752974/c3970366/content.html"
+    applicable_scope: ["个人所得税", "综合所得", "专项附加扣除", "税率", "纳税人"]
+
+# 企业所得税基本法 (基于2018年最新修订版)
+  - file_name: "中华人民共和国企业所得税法.pdf"
+    source_name: "中华人民共和国企业所得税法"
+    doc_type: "国家法律"
+    date_published: "2018-12-29"
+    date_effective: "2018-12-29"
+    url: "https://fgk.chinatax.gov.cn/zcfgk/c100009/c5193018/content.html"
+    applicable_scope: ["企业所得税", "应纳税所得额", "税率", "税收优惠"]
+
+# 契税基本法
+  - file_name: "中华人民共和国契税法.txt"
+    source_name: "中华人民共和国契税法"
+    doc_type: "国家法律"
+    date_published: "2020-08-11"
+    date_effective: "2021-09-01"
+    url: "https://fgk.chinatax.gov.cn/zcfgk/c100009/c5193053/content.html"
+    applicable_scope: ["契税", "权属转移", "计税依据", "免征契税"]
+
+# 最新增值税基本法 (2026年施行)
+  - file_name: "中华人民共和国增值税法.txt"
+    source_name: "中华人民共和国增值税法"
+    doc_type: "国家法律"
+    date_published: "2024-12-25"
+    date_effective: "2026-01-01"
+    url: "https://shanghai.chinatax.gov.cn/sjtax/ztzl/yshj/ldjj/202412/t474700.html"
+    applicable_scope: ["增值税", "税率", "计税方法", "纳税期限"]

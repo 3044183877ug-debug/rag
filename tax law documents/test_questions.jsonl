@@ -1,0 +1,50 @@
+{"id": "q01", "type": "in-domain", "category": "研发加计扣除", "question": "2023年以后，企业研发费用未形成无形资产的，加计扣除比例是多少？", "expected_keywords": ["100%", "财政部 税务总局 科技部公告2023年第7号"]}
+{"id": "q02", "type": "in-domain", "category": "研发加计扣除", "question": "我们公司委托境外机构进行研发，支付了100万，这笔钱能全部按100%加计扣除吗？", "expected_keywords": ["80%", "三分之二", "财税〔2018〕64号"]}
+{"id": "q03", "type": "in-domain", "category": "研发加计扣除", "question": "烟草制造业可以享受研发费用加计扣除政策吗？", "expected_keywords": ["不可以", "负面清单", "财税〔2015〕119号"]}
+{"id": "q04", "type": "in-domain", "category": "研发加计扣除", "question": "研发人员的外聘劳务费用能算作人员人工费用进行加计扣除吗？", "expected_keywords": ["可以", "外聘", "财税〔2015〕119号"]}
+{"id": "q05", "type": "in-domain", "category": "研发加计扣除", "question": "研发费用形成无形资产的，按照什么比例在税前摊销？", "expected_keywords": ["200%", "公告2023年第7号"]}
+{"id": "q06", "type": "in-domain", "category": "研发加计扣除", "question": "创意设计活动发生的费用可以按照研发费用加计扣除吗？", "expected_keywords": ["可以", "财税〔2015〕119号"]}
+{"id": "q07", "type": "in-domain", "category": "个人所得税", "question": "2023年起，赡养老人的个税专项附加扣除标准提高到了每月多少钱？", "expected_keywords": ["3000元", "国发〔2023〕13号"]}
+{"id": "q08", "type": "in-domain", "category": "个人所得税", "question": "如果我是独生子女，赡养老人的3000元额度我可以全部扣除吗？", "expected_keywords": ["全部扣除", "国发〔2018〕41号", "国发〔2023〕13号"]}
+{"id": "q09", "type": "in-domain", "category": "个人所得税", "question": "非独生子女赡养老人，每人每月的扣除额度有上限吗？", "expected_keywords": ["不能超过1500元", "分摊", "国发〔2018〕41号"]}
+{"id": "q10", "type": "in-domain", "category": "个人所得税", "question": "3岁以下婴幼儿照护的个税专项扣除标准目前是多少？", "expected_keywords": ["2000元", "国发〔2023〕13号"]}
+{"id": "q11", "type": "in-domain", "category": "个人所得税", "question": "子女教育的个税专项扣除，父母双方可以怎么分摊？", "expected_keywords": ["各扣除50%", "一方扣除100%", "国发〔2018〕41号"]}
+{"id": "q12", "type": "in-domain", "category": "个人所得税", "question": "继续教育如果是接受技能人员职业资格继续教育，怎么扣除？", "expected_keywords": ["取得证书的当年", "3600元", "国发〔2018〕41号"]}
+{"id": "q13", "type": "in-domain", "category": "个人所得税", "question": "个人所得税法中规定，居民个人是指在中国境内居住累计满多少天的个人？", "expected_keywords": ["一百八十三天", "个人所得税法"]}
+{"id": "q14", "type": "in-domain", "category": "个人所得税", "question": "综合所得适用的最高个人所得税税率是多少？", "expected_keywords": ["45%", "个人所得税法"]}
+{"id": "q15", "type": "in-domain", "category": "小微企业优惠", "question": "个体工商户年应纳税所得额不超过200万元的部分，企业所得税怎么优惠？", "expected_keywords": ["减半征收", "公告2023年第12号"]}
+{"id": "q16", "type": "in-domain", "category": "小微企业优惠", "question": "小微企业和2026年增值税法实施后，小微企业的增值税优惠政策还会延续吗？", "expected_keywords": ["继续实施", "公告2026年第10号"]}
+{"id": "q17", "type": "in-domain", "category": "小微企业优惠", "question": "2026年的增值税法衔接公告中，针对集成电路企业的加计抵减政策延续到哪一年？", "expected_keywords": ["2027年12月31日", "公告2026年第10号"]}
+{"id": "q18", "type": "in-domain", "category": "小微企业优惠", "question": "增值税法实施后，甲供工程适用简易计税方法的规定有什么变化？", "expected_keywords": ["停止执行", "新老划断", "公告2026年第10号"]}
+{"id": "q19", "type": "in-domain", "category": "企业所得税", "question": "国家重点扶持的高新技术企业，企业所得税税率是多少？", "expected_keywords": ["15%", "企业所得税法"]}
+{"id": "q20", "type": "in-domain", "category": "企业所得税", "question": "企业所得税法规定的法定基础税率是多少？", "expected_keywords": ["25%", "企业所得税法"]}
+{"id": "q21", "type": "in-domain", "category": "企业所得税", "question": "企业发生的公益性捐赠支出，在年度利润总额多少以内的部分，准予在计算应纳税所得额时扣除？", "expected_keywords": ["12%", "企业所得税法"]}
+{"id": "q22", "type": "in-domain", "category": "增值税", "question": "《中华人民共和国增值税法》是从哪一年开始施行的？", "expected_keywords": ["2026年", "增值税法"]}
+{"id": "q23", "type": "in-domain", "category": "契税", "question": "《中华人民共和国契税法》规定的契税税率幅度是多少？", "expected_keywords": ["3%至5%", "契税法"]}
+{"id": "q24", "type": "in-domain", "category": "契税", "question": "法定继承人继承土地、房屋权属，需要缴纳契税吗？", "expected_keywords": ["免征", "契税法"]}
+{"id": "q25", "type": "in-domain", "category": "契税", "question": "契税的纳税义务发生时间是什么时候？", "expected_keywords": ["签订土地、房屋权属转移合同的当日", "契税法"]}
+{"id": "q26", "type": "trap", "category": "研发加计扣除", "question": "我们是搞批发的企业，自己开发了一套库存管理系统，能享受100%的研发加计扣除吗？", "expected_keywords": ["不可以", "负面清单", "财税〔2015〕119号"]}
+{"id": "q27", "type": "trap", "category": "个人所得税", "question": "我给孩子报了周末的马术兴趣班，这笔学费能申报个税子女教育扣除吗？", "expected_keywords": ["不可以", "学历教育", "国发〔2018〕41号"]}
+{"id": "q28", "type": "trap", "category": "企业所得税", "question": "我们是一家合伙企业，今年的利润怎么交企业所得税？", "expected_keywords": ["不适用", "个人所得税", "企业所得税法"]}
+{"id": "q29", "type": "trap", "category": "个人所得税", "question": "我买了一套商铺，能抵扣个人所得税的首套住房贷款利息吗？", "expected_keywords": ["不可以", "首套住房", "国发〔2018〕41号"]}
+{"id": "q30", "type": "trap", "category": "个人所得税", "question": "我已经按照每月2000元扣除了住房租金，还能同时扣除首套房贷款利息吗？", "expected_keywords": ["不能同时扣除", "国发〔2018〕41号"]}
+{"id": "q31", "type": "trap", "category": "研发加计扣除", "question": "按照2021年13号公告，现在所有企业的研发费用加计扣除比例都是75%对吗？", "expected_keywords": ["不对", "100%", "废止", "公告2023年第7号"]}
+{"id": "q32", "type": "trap", "category": "小微企业优惠", "question": "个体工商户年利润300万，可以全部享受减半征收个税的优惠吗？", "expected_keywords": ["不可以", "不超过200万元的部分", "公告2023年第12号"]}
+{"id": "q33", "type": "trap", "category": "个人所得税", "question": "大病医疗专项扣除可以在每月发工资的时候让公司提前扣除吗？", "expected_keywords": ["不可以", "汇算清缴", "国发〔2018〕41号"]}
+{"id": "q34", "type": "trap", "category": "研发加计扣除", "question": "委托境外个人开发的研发费用，可以加计扣除吗？", "expected_keywords": ["不可以", "境外个人", "财税〔2018〕64号"]}
+{"id": "q35", "type": "trap", "category": "企业所得税", "question": "非居民企业在中国境内设立机构，其来源于境外的所得一律按25%交税吗？", "expected_keywords": ["有实际联系", "企业所得税法"]}
+{"id": "q36", "type": "in-domain", "category": "个人所得税", "question": "大病医疗个税专项扣除的最高限额是多少？", "expected_keywords": ["80000元", "国发〔2018〕41号"]}
+{"id": "q37", "type": "in-domain", "category": "个人所得税", "question": "直辖市的住房租金个税扣除标准是每月多少？", "expected_keywords": ["1500元", "国发〔2018〕41号"]}
+{"id": "q38", "type": "in-domain", "category": "契税", "question": "婚姻关系存续期间夫妻之间变更土地、房屋权属，怎么收契税？", "expected_keywords": ["免征", "契税法"]}
+{"id": "q39", "type": "in-domain", "category": "企业所得税", "question": "企业综合利用资源生产符合国家产业政策规定的产品所取得的收入，企业所得税怎么处理？", "expected_keywords": ["减计收入", "企业所得税法"]}
+{"id": "q40", "type": "in-domain", "category": "企业所得税", "question": "符合条件的非营利组织的收入，交企业所得税吗？", "expected_keywords": ["免税收入", "企业所得税法"]}
+{"id": "q41", "type": "out-of-domain", "category": "消费税", "question": "目前进口高档化妆品的消费税税率是多少？", "expected_keywords": ["资料不足", "未收录", "补充相关政策文件"]}
+{"id": "q42", "type": "out-of-domain", "category": "印花税", "question": "签订一份购销合同，印花税的税率现在是千分之几？", "expected_keywords": ["资料不足", "未收录", "补充相关政策文件"]}
+{"id": "q43", "type": "out-of-domain", "category": "车辆购置税", "question": "现在买新能源汽车还要交车辆购置税吗？", "expected_keywords": ["资料不足", "未收录", "补充相关政策文件"]}
+{"id": "q44", "type": "out-of-domain", "category": "土地增值税", "question": "房地产开发企业预售商品房的土地增值税预征率是多少？", "expected_keywords": ["资料不足", "未收录", "补充相关政策文件"]}
+{"id": "q45", "type": "out-of-domain", "category": "劳动法", "question": "员工试用期被辞退，公司需要依法支付经济补偿金吗？", "expected_keywords": ["资料不足", "未收录", "补充相关政策文件"]}
+{"id": "q46", "type": "out-of-domain", "category": "公司法", "question": "新公司法规定有限责任公司的认缴资金必须在几年内实缴到位？", "expected_keywords": ["资料不足", "未收录", "补充相关政策文件"]}
+{"id": "q47", "type": "out-of-domain", "category": "出口退税", "question": "我们出口一批机电产品到欧洲，退税率是多少？", "expected_keywords": ["资料不足", "未收录", "补充相关政策文件"]}
+{"id": "q48", "type": "out-of-domain", "category": "社保", "question": "今年本市的职工基本医疗保险单位缴费比例降了吗？", "expected_keywords": ["资料不足", "未收录", "补充相关政策文件"]}
+{"id": "q49", "type": "out-of-domain", "category": "关税", "question": "从韩国进口半导体设备，关税税则中的最惠国税率是多少？", "expected_keywords": ["资料不足", "未收录", "补充相关政策文件"]}
+{"id": "q50", "type": "out-of-domain", "category": "房产税", "question": "企业自用办公楼的房产税是按原值还是按租金交？", "expected_keywords": ["资料不足", "未收录", "补充相关政策文件"]}
