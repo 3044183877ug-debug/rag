@@ -26,9 +26,7 @@
 │   ├── 财税2026_10号_小微增值税衔接.txt
 │   └── test_questions.jsonl               # 50 条评测用例
 ├── chroma_db/                # 本地向量数据库（自动生成）
-├── val_results.json          # 评测详细结果（JSON）
 ├── val_report.md             # 评测报告（Markdown 表格）
-├── .env                      # 环境变量（API Key，不上传）
 └── .gitignore
 ```
 
