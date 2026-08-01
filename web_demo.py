@@ -18,6 +18,14 @@ from __future__ import annotations
 import sys
 import os
 import time
+import json
+from datetime import datetime
+
+from langchain_core.documents import Document
+
+# ── 反馈日志路径 ──────────────────────────────────────────────────
+FEEDBACK_LOG_FILE = "data/feedback_logs.jsonl"
+os.makedirs(os.path.dirname(os.path.abspath(FEEDBACK_LOG_FILE)), exist_ok=True)
 
 # ── 必须在 import rag_agent 之前设置，抑制模块顶层 print ─────────
 os.environ["RAG_SILENT_IMPORT"] = "1"
@@ -60,6 +68,19 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+def log_user_feedback(prompt: str, target_query: str, dst_state: dict, answer: str, attitude: int) -> None:
+    """将用户点赞/点踩的对话上下文写入本地 JSONL 日志，用于后续分析。"""
+    record = {
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "original_prompt": prompt,
+        "resolved_query": target_query,
+        "dst_state": dst_state,
+        "bot_answer": answer,
+        "user_attitude": "thumbs_up" if attitude == 1 else "thumbs_down",
+    }
+    with open(FEEDBACK_LOG_FILE, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
 # ════════════════════════════════════════════════════════════════
 #  初始化 RAG 链路（带缓存，仅首次加载时耗时）
 # ════════════════════════════════════════════════════════════════
@@ -86,6 +107,20 @@ except Exception as e:
 if "messages" not in st.session_state:
     st.session_state.messages = []  # 每条: {role, content, sources?, confidence?}
 
+if "dst_state" not in st.session_state:
+    st.session_state.dst_state = {
+        "tax_type": None,
+        "entity": None,
+        "action": None,
+        "resolved_query": None,
+    }
+
+if "temp_file_content" not in st.session_state:
+    st.session_state.temp_file_content = None
+
+if "logged_feedback" not in st.session_state:
+    st.session_state.logged_feedback = set()
+
 # ════════════════════════════════════════════════════════════════
 #  侧边栏 — 系统信息
 # ════════════════════════════════════════════════════════════════
@@ -100,7 +135,57 @@ with st.sidebar:
     st.divider()
     if st.button("🗑️ 清空对话", use_container_width=True):
         st.session_state.messages = []
+        st.session_state.dst_state = {
+            "tax_type": None,
+            "entity": None,
+            "action": None,
+            "resolved_query": None,
+        }
+        st.session_state.temp_file_content = None
         st.rerun()
+
+    st.divider()
+
+    # ── 多轮对话开关（自动开启）──────────────────────────────
+    enable_multi_turn = True
+
+    # ── 用户提示 ────────────────────────────────────────────
+    if enable_multi_turn:
+        st.info(
+            "💡 **记忆上限提示**：为保证法律检索的绝对精准，避免话题交叉干扰，"
+            "系统最多仅结合您最近 **3 轮**的对话记录进行上下文推演。"
+            "若需开启全新税种咨询，建议点击上方「🗑️ 清空对话」。"
+        )
+
+    # ── DST 状态可视化（仅多轮模式下显示）─────────────────────
+    if enable_multi_turn:
+        st.divider()
+        st.subheader("🧠 对话状态记忆")
+        st.caption("后台实时追踪的对话上下文")
+        st.json(st.session_state.dst_state)
+
+    st.divider()
+
+    # ── 临时参考文件上传 ────────────────────────────────────
+    uploaded_file = st.file_uploader(
+        "📄 上传临时参考文件 (仅限本次对话)",
+        type=["txt"],
+        help="上传的 .txt 文件内容不会进入向量检索，仅在 LLM 生成回答时作为补充上下文注入。"
+             "内容自动截断至前 3000 字符，避免影响响应速度。",
+    )
+    if uploaded_file is not None:
+        try:
+            raw_content = uploaded_file.getvalue().decode("utf-8")
+            st.session_state.temp_file_content = raw_content[:3000]
+            st.caption(
+                f"✅ 已加载临时参考文件：`{uploaded_file.name}` "
+                f"({len(raw_content[:3000])} / {len(raw_content)} 字符)"
+            )
+        except Exception as e:
+            st.warning(f"⚠️ 文件读取失败: {e}")
+            st.session_state.temp_file_content = None
+    else:
+        st.session_state.temp_file_content = None
 
 # ════════════════════════════════════════════════════════════════
 #  主区域
@@ -110,7 +195,7 @@ st.title("📋 税务 RAG 智能问答")
 st.caption("基于中国税法知识库 · 三级置信度路由 · 流式逐字生成")
 
 # ── 渲染历史消息 ──────────────────────────────────────────────
-for msg in st.session_state.messages:
+for i, msg in enumerate(st.session_state.messages):
     with st.chat_message(msg["role"]):
         # 置信度标签（仅 assistant 消息）
         if msg["role"] == "assistant" and msg.get("confidence"):
@@ -157,16 +242,54 @@ for msg in st.session_state.messages:
                         unsafe_allow_html=True,
                     )
 
+        # 反馈按钮（每轮 assistant 消息下方）
+        if msg["role"] == "assistant":
+            fb_key = f"fb_{i}"
+            fb_result = st.feedback("thumbs", key=fb_key)
+            if fb_result is not None and fb_key not in st.session_state.logged_feedback:
+                # 从当前消息中反查上下文信息
+                log_user_feedback(
+                    prompt=msg.get("original_prompt", ""),
+                    target_query=msg.get("resolved_query", ""),
+                    dst_state=msg.get("dst_state", {}),
+                    answer=msg["content"],
+                    attitude=fb_result,
+                )
+                st.session_state.logged_feedback.add(fb_key)
+                st.toast("已记录您的反馈，我们将持续优化系统！")
+
 # ── 输入框 ────────────────────────────────────────────────────
 if prompt := st.chat_input("请输入您的税务问题，例如：合伙企业需要缴纳企业所得税吗？"):
+    # ── 0. 提取纯文本对话历史（在添加本轮消息之前）─────────────
+    chat_history = [
+        {"role": m["role"], "content": m["content"]}
+        for m in st.session_state.messages
+        if m.get("role") in ("user", "assistant")
+    ]
+
     # 1. 添加用户消息
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
+    # ── 1.5 DST 多轮改写（仅在开关开启时触发）─────────────────
+    search_query = prompt  # 默认使用原始问题（单轮行为不变）
+    target_query = prompt  # 最终发给 LLM 的生成文本（单轮 = 原始输入）
+    if enable_multi_turn:
+        with st.spinner("🧠 正在分析对话上下文..."):
+            st.session_state.dst_state = chain.update_dialogue_state(
+                chat_history=chat_history,
+                current_state=st.session_state.dst_state,
+                current_query=prompt,
+            )
+        resolved = st.session_state.dst_state["resolved_query"]
+        if resolved:
+            search_query = resolved
+            target_query = resolved  # 多轮：LLM 收到完整改写后的查询
+
     # 2. 检索 + 路由判定（先于流式回答，用于展示来源）
     with st.spinner("🔍 正在检索相关政策..."):
-        docs, distances = chain._single_search(prompt, k=6)
+        docs, distances = chain._hybrid_search(search_query, k=6)
         confidence = rag.classify_confidence(distances)
 
     # 3. 构造来源数据
@@ -203,11 +326,35 @@ if prompt := st.chat_input("请输入您的税务问题，例如：合伙企业�
         # 流式写回答
         answer_container = st.empty()
         try:
+            # ── 伪装 Document 注入：临时参考文件（不进向量检索，仅注入 LLM 生成）──
+            if st.session_state.temp_file_content:
+                temp_doc = Document(
+                    page_content=st.session_state.temp_file_content,
+                    metadata={
+                        "source_name": "用户上传临时参考资料",
+                        "doc_type": "临时注入",
+                    },
+                )
+                injected_docs = [temp_doc] + docs
+                injected_distances = [0.0] + distances
+            else:
+                injected_docs = docs
+                injected_distances = distances
+
             full_answer = st.write_stream(
-                chain.stream(prompt, pre_docs=docs, pre_distances=distances)
+                chain.stream(
+                    target_query,
+                    pre_docs=injected_docs,
+                    pre_distances=injected_distances,
+                    bypass_nohit=bool(st.session_state.temp_file_content),
+                )
             )
         except Exception as e:
             full_answer = f"⚠️ 回答生成失败: {e}"
+
+        # ── DST 改写提示（仅当多轮改写生效时展示）─────────────
+        if enable_multi_turn and search_query != prompt:
+            st.caption(f"🔍 系统自动补充上下文：{search_query}")
 
         # 来源折叠面板（事后展示）
         with st.expander("📚 查看检索来源（Top-6）", expanded=False):
@@ -232,10 +379,27 @@ if prompt := st.chat_input("请输入您的税务问题，例如：合伙企业�
                     unsafe_allow_html=True,
                 )
 
+        # ── 反馈按钮 ──────────────────────────────────────────
+        fb_key = f"fb_{len(st.session_state.messages)}"
+        fb_result = st.feedback("thumbs", key=fb_key)
+        if fb_result is not None and fb_key not in st.session_state.logged_feedback:
+            log_user_feedback(
+                prompt=prompt,
+                target_query=target_query,
+                dst_state=st.session_state.dst_state,
+                answer=full_answer,
+                attitude=fb_result,
+            )
+            st.session_state.logged_feedback.add(fb_key)
+            st.toast("已记录您的反馈，我们将持续优化系统！")
+
     # 5. 存入历史
     st.session_state.messages.append({
         "role": "assistant",
         "content": full_answer,
         "confidence": confidence.value,
         "sources": sources_payload,
+        "original_prompt": prompt,
+        "resolved_query": target_query,
+        "dst_state": st.session_state.dst_state.copy(),
     })
