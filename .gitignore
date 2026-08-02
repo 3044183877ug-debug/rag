@@ -17,6 +17,7 @@ __pycache__/
 
 # 临时文件
 tempCodeRunnerFile.py
+~$*.docx
 
 # Chroma 数据库（本地向量库，不纳入版本管理）
 chroma_db/
