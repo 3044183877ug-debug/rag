@@ -33,7 +33,7 @@ while i < len(args):
 if question_parts:
     question = " ".join(question_parts)
 else:
-    question = "我开了一家汽车修理厂，执照上写的是个体工商户，去年的净利润大概是150万左右。我看政策说小型微利企业可以按20%交企业所得税，我们修理厂能按这个交吗？" 
+    question = "公司有偷税行为被税务机关发现了，会面临什么样的处罚？" 
 
 # ── 导入 rag_agent（会自动触发模型/向量库加载）──────────────────
 print(f"正在初始化 RAG 链路（加载 embedding 模型 + 向量库）...")

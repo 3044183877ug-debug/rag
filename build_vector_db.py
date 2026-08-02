@@ -11,12 +11,15 @@ RecursiveCharacterTextSplitter 切分，并将 YAML 中的全部元数据字段
 支持的物理文件格式:
   - .txt   → 直接 UTF-8 读取
   - .pdf   → pymupdf (fitz) 逐页提取纯文本
-  - .doc / .docx → (预留扩展点)
+  - .docx  → python-docx 提取文本 + 表格转 Markdown（保留二维结构）
+  - .doc   → win32com COM 自动化中转 → 另存为 .docx → 复用 load_docx
+  - 附件  → 通过 YAML attachments 字段绑定到主文件，拼接到正文后统一切分
 """
 
 import os
 import re
 import shutil
+import sys
 from pathlib import Path
 
 import yaml
@@ -24,6 +27,30 @@ from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
+
+# ── 文件格式依赖（顶部导入，启动即检测，避免构建中途静默失败）──
+try:
+    import fitz  # pymupdf — PDF 加载
+except ImportError:
+    print("[FATAL] 缺少 pymupdf，请执行: pip install pymupdf")
+    sys.exit(1)
+
+try:
+    from docx import Document as DocxDocument  # python-docx — .docx 加载
+    from docx.oxml.ns import qn as docx_qn
+except ImportError:
+    print("[FATAL] 缺少 python-docx，请执行: pip install python-docx")
+    sys.exit(1)
+
+# win32com 仅 Windows 环境需要（用于 .doc 旧格式），缺包时不阻断启动，
+# 仅在遇到 .doc 文件时才报错
+_HAS_WIN32COM = False
+try:
+    import pythoncom
+    import win32com.client
+    _HAS_WIN32COM = True
+except ImportError:
+    pass
 
 # ══════════════════════════════════════════════════════════════════
 #  路径配置
@@ -36,19 +63,38 @@ DB_DIR = BASE_DIR / "chroma_db"
 # ══════════════════════════════════════════════════════════════════
 #  切分配置
 # ══════════════════════════════════════════════════════════════════
-CHUNK_SIZE = 1200
-CHUNK_OVERLAP = 200
+CHUNK_SIZE = 1000
+CHUNK_OVERLAP = 350
 # ── 切分符设计原则 ──────────────────────────────────────────────
 # 法律文本长句极多，按逗号/分号切分会导致"主谓分离"。
 # 例如："契税的纳税义务发生时间，为签订合同的当日。" → 切在逗号处丢失主语。
 #
-# 优先级递减：
+# 优先级递减（每级都是在前级无法切出 ≤ CHUNK_SIZE 的片段时才触发）：
 #   \n\n  → 段落边界（最安全）
+#   \n    → 换行/表格行边界（优先于句号，防止表格行被截断）
 #   。    → 句子边界（法律文本的天然语义单元）
-#   \n    → 换行（PDF 重建后只剩真正的段落内换行）
-#   ；    → 分句边界（仅作为最后防线，阻止 RecursiveCharacterTextSplitter
-#           在无任何分隔符时回退到逐字符硬切；正常法条不会触发此级）
-CHUNK_SEPARATORS = ["\n\n", "。", "\n", "；"]
+#   ；    → 分句边界（法律/公文常见分隔符）
+#   |     → 表格列边界（防止长表格行被硬截在列内容中间）
+#   " "   → 空格（极端情况兜底）
+#
+# RecursiveCharacterTextSplitter 内置兜底：
+#   所有 5 级 separators 均失效时，LangChain 自动回退到 chunk_size 字符级硬切，
+#   确保任何情况下单个 chunk 绝对不会超过 chunk_size 个字符。
+CHUNK_SEPARATORS = ["\n\n", "\n", "。", "；", "|", " "]
+
+# ── _normalize_text 与 Splitter 的交互审计 ─────────────────────
+#
+# Q: _normalize_text 的 Step 1（缝合跨页断句）会吃掉 \\n，是否导致
+#    Splitter 失去切分点？
+# A: 不会。Step 1 仅移除"非完结标点后的 \\n"（如逗号后跨页），
+#    句号/问号/分号后的 \\n 全部保留。且 Step 2-3 会主动注入新的
+#    \\n\\n 到"第X章""第X条""一、"等公文标记前，增加切分点密度。
+#
+# Q: 如果所有 separators 都找不到（纯 URL、长数字串等），chunk 会超限吗？
+# A: 不会。RecursiveCharacterTextSplitter 的递归算法保证：遍历完
+#    separators 列表后若仍超限，则按 chunk_size 字符硬截断。这是
+#    LangChain 源码级的兜底保证，无需额外代码。
+# ══════════════════════════════════════════════════════════════════
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -71,8 +117,6 @@ def load_pdf(file_path: Path) -> str:
     1. 移除段落内部的假换行：单个 \\n（前后均非 \\n）→ 删除，使句子重新连贯
     2. 保留真正的段落边界：连续两个以上 \\n → 保持不变
     """
-    import fitz  # pymupdf
-
     doc = fitz.open(str(file_path))
     if doc.is_encrypted:
         # 尝试空密码
@@ -94,10 +138,152 @@ def load_pdf(file_path: Path) -> str:
     return "\n\n".join(texts)
 
 
+# ══════════════════════════════════════════════════════════════════
+#  .doc / .docx 加载器（保留表格 2D 结构）
+# ══════════════════════════════════════════════════════════════════
+
+def _table_to_markdown(table) -> str:
+    """将 python-docx Table 转为 Markdown 表格，保留二维行列结构。
+
+    说明：
+      - python-docx 对纵向合并单元格会在每行重复返回相同的 cell.text，
+        因此无需额外的前向填充逻辑
+      - 单元格内换行全部压缩为空格，确保 Markdown 单行不跨行
+      - 行宽不一致时（如遇横向合并单元格），用空字符串补齐到最大列数
+    """
+    if not table.rows:
+        return ""
+
+    # 1. 提取各行数据
+    rows_data: list[list[str]] = []
+    for row in table.rows:
+        cells = []
+        for cell in row.cells:
+            text = cell.text.strip()
+            text = " ".join(text.split())  # 压缩连续空白、换行 → 单空格
+            cells.append(text)
+        rows_data.append(cells)
+
+    # 2. 确定列数（取最大行宽）
+    ncols = max(len(r) for r in rows_data) if rows_data else 0
+    if ncols == 0:
+        return ""
+
+    # 3. 补齐列宽（仅用空串补齐，不做前向填充）
+    for row in rows_data:
+        while len(row) < ncols:
+            row.append("")
+
+    # 4. 组装 Markdown 表格
+    lines: list[str] = []
+    lines.append("| " + " | ".join(rows_data[0]) + " |")
+    lines.append("| " + " | ".join(["---"] * ncols) + " |")
+    for row in rows_data[1:]:
+        lines.append("| " + " | ".join(row) + " |")
+
+    return "\n".join(lines)
+
+
+def load_docx(file_path: Path) -> str:
+    """加载 .docx 文件，段落与表格交替提取，表格以 Markdown 保留二维结构。
+
+    核心挑战：python-docx 的 doc.paragraphs 和 doc.tables 是分离的两个列表，
+    无法还原文档中段落/表格的真实穿插顺序。
+
+    解法：遍历 doc.element.body 的 XML 子元素，按 w:p (段落) / w:tbl (表格)
+    标签判断类型，保持原始文档顺序交替提取。
+    """
+    TAG_P = docx_qn("w:p")
+    TAG_TBL = docx_qn("w:tbl")
+
+    doc = DocxDocument(str(file_path))
+    parts: list[str] = []
+
+    tables = doc.tables
+    paragraphs = doc.paragraphs
+    p_idx = 0
+    t_idx = 0
+
+    for child in doc.element.body:
+        if child.tag == TAG_P:
+            if p_idx < len(paragraphs):
+                text = paragraphs[p_idx].text.strip()
+                if text:
+                    parts.append(text)
+                p_idx += 1
+        elif child.tag == TAG_TBL:
+            if t_idx < len(tables):
+                md_table = _table_to_markdown(tables[t_idx])
+                if md_table:
+                    parts.append(md_table)
+                t_idx += 1
+
+    return "\n\n".join(parts)
+
+
+def load_doc(file_path: Path) -> str:
+    """加载旧版 .doc（二进制 OLE 格式）通过 Windows COM 自动化中转。
+
+    python-docx 只能读取 Open XML 格式 (.docx)，无法直接处理旧式 .doc。
+    本函数利用已安装的 Microsoft Word COM 对象：
+      1. 静默打开 .doc
+      2. SaveAs 为临时 .docx (FileFormat=16)
+      3. 关闭并退出 Word
+      4. 调用 load_docx() 提取内容
+      5. 删除临时文件
+    """
+    if not _HAS_WIN32COM:
+        raise ImportError("缺少 pywin32，无法处理 .doc 文件。请执行: pip install pywin32")
+
+    import tempfile
+
+    file_path = file_path.resolve()
+    co_init = False
+    word = None
+    tmp_path = None
+
+    try:
+        pythoncom.CoInitialize()
+        co_init = True
+
+        word = win32com.client.Dispatch("Word.Application")
+        word.Visible = False
+        word.DisplayAlerts = False  # 抑制"文件正在使用"等弹窗
+
+        doc = word.Documents.Open(str(file_path), ReadOnly=True)
+
+        # 创建临时 .docx 文件
+        tmp_fd, tmp_path_str = tempfile.mkstemp(suffix=".docx", prefix="_rag_")
+        os.close(tmp_fd)
+        tmp_path = Path(tmp_path_str)
+
+        doc.SaveAs2(str(tmp_path), FileFormat=16)  # 16 = wdFormatXMLDocument
+        doc.Close()
+    finally:
+        if word:
+            try:
+                word.Quit()
+            except Exception:
+                pass
+        if co_init:
+            pythoncom.CoUninitialize()
+
+    # 从临时 .docx 提取内容
+    try:
+        result = load_docx(tmp_path)
+    finally:
+        if tmp_path and tmp_path.exists():
+            tmp_path.unlink()
+
+    return result
+
+
 # 文件扩展名 → 加载器映射
 LOADER_MAP = {
     ".txt": load_txt,
     ".pdf": load_pdf,
+    ".docx": load_docx,
+    ".doc": load_doc,
 }
 
 
@@ -106,7 +292,7 @@ LOADER_MAP = {
 # ══════════════════════════════════════════════════════════════════
 
 # YAML 中需要从 metadata 排除的字段（文件名只用于定位，不注入）
-METADATA_EXCLUDE_FIELDS = {"file_name"}
+METADATA_EXCLUDE_FIELDS = {"file_name", "attachments"}
 
 # ══════════════════════════════════════════════════════════════════
 #  字段归一化：YAML 中同时存在两套命名惯例，统一映射为规范名
@@ -197,6 +383,234 @@ def _parse_article_chapter(text: str) -> dict:
     return result
 
 
+def _is_table_sep(line: str) -> bool:
+    """判断是否为 Markdown 表格分隔行 (| --- | --- |)"""
+    return bool(re.fullmatch(r'\|\s*[-:]+(\s*\|\s*[-:]+)*\s*\|', line.strip()))
+
+
+def _flatten_pipe_tables(text: str) -> str:
+    """检测管道表格并逐行展平为自包含完整短句。
+
+    将 Markdown 管道表格的每一数据行转为携带完整标题、税种上下文的自包含
+    短句，消除 RecursiveCharacterTextSplitter 跨行切分表格导致的检索盲区。
+
+    处理策略（按复杂度分三级）：
+      1. 简单行（无分号子项）→ 直接展平："【表名】：税目xxx，税率为xxx。"
+      2. 复杂行（含分号层级子项）→ 解析层级，每个叶子子项独立展平一行
+      3. 无法解析的复杂行 → 保留原管道格式但注入表名前缀
+    """
+    lines = text.split('\n')
+    output: list[str] = []
+    i = 0
+    n = len(lines)
+
+    while i < n:
+        line = lines[i]
+        stripped = line.strip()
+
+        # ── 检测管道表格起始 ──
+        if stripped.startswith('|') and not _is_table_sep(stripped):
+            # 收集连续管道行
+            table_lines: list[str] = []
+            while i < n and lines[i].strip().startswith('|'):
+                table_lines.append(lines[i].strip())
+                i += 1
+
+            # 找表名：前面最近的非空、非管道行
+            title = ""
+            for j in range(len(output) - 1, -1, -1):
+                candidate = output[j].strip()
+                if candidate and not candidate.startswith('|') and not candidate.startswith('【'):
+                    title = candidate.rstrip('：:')
+                    break
+
+            # 展平表格
+            flattened = _flatten_table_block(title, table_lines)
+            output.extend(flattened)
+        else:
+            output.append(line)
+            i += 1
+
+    return '\n'.join(output)
+
+
+def _flatten_table_block(title: str, table_lines: list[str]) -> list[str]:
+    """展平单个表格块，返回替换用的行列表。
+
+    管线：解析列头 → 跳过标题行+分隔行 → 逐行展平
+    """
+    if len(table_lines) < 3:
+        # 表格太小（没有数据行），原样保留
+        return table_lines
+
+    result: list[str] = []
+
+    # ── 1. 解析列头 ──
+    header_line = table_lines[0]
+    headers = [col.strip() for col in header_line.split('|')[1:-1]]
+
+    # ── 2. 找到数据行起始位置（跳过分隔行 + 可能的重复表头） ──
+    data_start = 1
+    while data_start < len(table_lines):
+        line = table_lines[data_start]
+        if _is_table_sep(line):
+            data_start += 1
+            continue
+        # 跳过与 header 内容重复的表头行（跨页表格常见）
+        line_cols = [col.strip() for col in line.split('|')[1:-1]]
+        if line_cols == headers:
+            data_start += 1
+            continue
+        break
+
+    # ── 3. 逐行展平 ──
+    for idx in range(data_start, len(table_lines)):
+        row_line = table_lines[idx]
+        cols = [col.strip() for col in row_line.split('|')[1:-1]]
+        if not cols or all(c == '' for c in cols):
+            continue
+
+        flattened_rows = _flatten_one_row(title, headers, cols)
+        result.extend(flattened_rows)
+
+    return result
+
+
+def _flatten_one_row(title: str, headers: list[str], cols: list[str]) -> list[str]:
+    """展平单行表格数据。
+
+    Returns:
+        展平后的文本行列表（简单行返回 1 行，复杂行可能返回多行）
+    """
+    # 确保 cols 与 headers 对齐（补齐缺列）
+    while len(cols) < len(headers):
+        cols.append("")
+
+    # ── 合并多列为描述性文本 ──
+    # 逻辑：第一列通常是"税目/污染物名"，后续列为"税率/税额/备注"
+    item_desc = cols[0] if cols else ""
+    value_parts = []
+    for j in range(1, len(cols)):
+        hdr = headers[j] if j < len(headers) else ""
+        val = cols[j]
+        if val:
+            if hdr and hdr != "备 注":
+                value_parts.append(f"{hdr}{val}")
+            elif val:
+                value_parts.append(val)
+
+    value_str = "，".join(value_parts) if value_parts else ""
+
+    # ── 情况 1：简单行（税目列不含分号层级） ──
+    if '；' not in item_desc:
+        # 清理中文/阿拉伯数字序号前缀
+        clean_desc = re.sub(r'^[一二三四五六七八九十]+、', '', item_desc)
+        clean_desc = re.sub(r'^\d+[\.、]\s*', '', clean_desc)
+        sentence = _make_sentence(title, clean_desc, value_str)
+        return [sentence]
+
+    # ── 情况 2：复杂行（含分号层级子项） ──
+    return _flatten_complex_row(title, headers, cols)
+
+
+def _flatten_complex_row(title: str, headers: list[str], cols: list[str]) -> list[str]:
+    """处理含分号层级子项的复杂表格行。
+
+    子项格式如：
+      税目: "一、烟；1.卷烟；（1）甲类卷烟；（2）乙类卷烟；2.雪茄烟；3.烟丝"
+      税率: "；；45%加0.003元/支；30%加0.003元/支；25%；30%"
+
+    策略：按层级收集叶子项（具体应税品目→税率），逐个展平。
+    """
+    item_desc = cols[0] if cols else ""
+    # 收集后续列的原始值
+    rate_cols = cols[1:] if len(cols) > 1 else []
+
+    # ── 解析税目列为 tokens: [(level, text), ...] ──
+    # 层级判定：数字+顿号=一级, 数字+点=二级, 带括号=三级叶子
+    parts = [p.strip() for p in item_desc.split('；')]
+    raw_tokens: list[dict] = []  # {text, level, is_leaf}
+    for p in parts:
+        if not p:
+            continue
+        # 判断层级
+        if re.match(r'^[一二三四五六七八九十]+、', p):
+            level = 1
+        elif re.match(r'^\d+\.', p):
+            level = 2
+        elif re.match(r'^[（(]\d+[)）]', p):
+            level = 3
+        else:
+            level = 2  # 默认
+        raw_tokens.append({"text": p, "level": level})
+
+    if not raw_tokens:
+        # 降级：原行保留带表名
+        return [_make_sentence(title, item_desc, "；".join(rate_cols))]
+
+    # ── 为每个 token 标注叶子状态 ──
+    # 叶子判定：level=3 或最后一个 token 或没有更深层级跟随
+    for ti in range(len(raw_tokens)):
+        t = raw_tokens[ti]
+        if t["level"] == 3:
+            t["is_leaf"] = True
+        elif ti == len(raw_tokens) - 1:
+            t["is_leaf"] = True
+        elif ti + 1 < len(raw_tokens) and raw_tokens[ti + 1]["level"] > t["level"]:
+            t["is_leaf"] = False
+        else:
+            t["is_leaf"] = True
+
+    # ── 取叶子 tokens ──
+    leaf_texts = [t for t in raw_tokens if t["is_leaf"]]
+
+    # ── 解析税率列：按分号拆分子税率，跳过空的 ──
+    all_rates: list[str] = []
+    for rc in rate_cols:
+        for sub in rc.split('；'):
+            sub = sub.strip()
+            if sub:
+                all_rates.append(sub)
+
+    # ── 匹配叶子到税率 ──
+    # 税率数量应与叶子token数量一致，不一致时做 best-effort
+    results: list[str] = []
+    for li, leaf in enumerate(leaf_texts):
+        rate = all_rates[li] if li < len(all_rates) else ""
+        # 清理编号前缀
+        clean_text = re.sub(r'^[（(]\d+[)）]\s*', '', leaf["text"])
+        clean_text = re.sub(r'^\d+\.\s*', '', clean_text)
+        clean_text = re.sub(r'^[一二三四五六七八九十]+、', '', clean_text)
+        # 拼接父子路径：找上一级非叶子作为前缀
+        prefix = ""
+        for ti in range(len(raw_tokens)):
+            if raw_tokens[ti] is leaf:
+                break
+            if not raw_tokens[ti].get("is_leaf"):
+                ancestor = re.sub(r'^\d+[\.、]?\s*', '', raw_tokens[ti]["text"])
+                ancestor = re.sub(r'^[一二三四五六七八九十]+、', '', ancestor)
+                if ancestor and ancestor not in prefix:
+                    prefix = prefix + ancestor + "-" if prefix else ancestor + "："
+        full_desc = f"{prefix}{clean_text}"
+        results.append(_make_sentence(title, full_desc, rate))
+
+    return results if results else [_make_sentence(title, item_desc, "；".join(rate_cols))]
+
+
+def _make_sentence(title: str, item_desc: str, value_str: str) -> str:
+    """组装展平短句。"""
+    if title:
+        if value_str:
+            return f"【{title}】：{item_desc}，{value_str}。"
+        else:
+            return f"【{title}】：{item_desc}。"
+    else:
+        if value_str:
+            return f"{item_desc}，{value_str}。"
+        else:
+            return f"{item_desc}。"
+
+
 def _normalize_text(text: str) -> str:
     """物理排版恢复 — 在切分前重建法律/财税文本的段落结构。
 
@@ -235,7 +649,7 @@ def _normalize_text(text: str) -> str:
     # 注意：[^...] 中不包含 \\n 本身，因此 \\n\\n 中第二个 \\n
     # 会被前一个 \\n "吃掉" → \\n\\n 降为 \\n，后续第四步统一处理。
     text = re.sub(
-        r'([^。！？；：、”、】\n])\n',
+        r'([^。！？；：、”、】\n|])\n',
         r'\1',
         text,
     )
@@ -350,9 +764,11 @@ def load_and_chunk(entry: dict) -> list[Document]:
     1. 从 entry["file_name"] 获取文件名
     2. 在 DOCS_DIR 下查找物理文件
     3. 根据扩展名选择加载器读取全文
-    4. 用 RecursiveCharacterTextSplitter 切分
-    5. 将 entry 中除 file_name 外的所有字段注入每个 chunk
-    6. 为每个 chunk 解析章/节/条信息并注入 metadata
+    4. 若 entry 含 attachments 字段，逐附件加载并拼接到主文本末尾
+       （附件内容以【附件：文件名】标记分隔，与主文本统一切分）
+    5. 用 RecursiveCharacterTextSplitter 切分
+    6. 将 entry 中除 file_name/attachments 外的所有字段注入每个 chunk
+    7. 为每个 chunk 解析章/节/条信息并注入 metadata
     """
     file_name = entry["file_name"]
     file_path = DOCS_DIR / file_name
@@ -368,10 +784,37 @@ def load_and_chunk(entry: dict) -> list[Document]:
         print(f"  [WARN]  跳过（不支持的格式 .{ext}）: {file_path}")
         return []
 
-    # 1. 加载全文
+    # 1. 加载主文件全文
     print(f"  读取: {file_name}")
     raw_text = loader(file_path)
-    text = _normalize_text(raw_text)
+
+    # 2. 加载附件（如有），拼接到主文本末尾后统一切分
+    attachment_files = entry.get("attachments", [])
+    if attachment_files:
+        for att_file in attachment_files:
+            att_path = DOCS_DIR / att_file
+            if not att_path.exists():
+                print(f"    [WARN]  附件不存在: {att_file}")
+                continue
+            att_ext = att_path.suffix.lower()
+            att_loader = LOADER_MAP.get(att_ext)
+            if att_loader is None:
+                print(f"    [WARN]  附件格式不支持 (.{att_ext}): {att_file}")
+                continue
+            print(f"    [ATT] 附件: {att_file}")
+            try:
+                att_text = att_loader(att_path)
+                # 用明确标记分隔，方便 LLM 识别附件边界
+                raw_text += f"\n\n【附件：{att_path.stem}】\n{att_text}"
+            except Exception as e:
+                print(f"    [ERROR] 附件加载失败: {att_file} — {e}")
+
+    # 3. 表格展平（必须在归一化之前！_normalize_text 的 Step 3a 会把表格内的
+    #    "一、" "二、" 当成公文大点注入 \\n\\n，炸碎管道表格行）
+    #    → 先展平为纯文本短句，后续归一化不会误伤
+    #    → 归一化 + 切分
+    text = _flatten_pipe_tables(raw_text)
+    text = _normalize_text(text)
     print(f"    提取完整文本，共 {len(text)} 个字符")
 
     if not text:
@@ -388,6 +831,18 @@ def load_and_chunk(entry: dict) -> list[Document]:
     )
     chunks = splitter.split_text(text)
     print(f"    切分为 {len(chunks)} 个文本块")
+
+    # ── Chunk 大小分布验证（安全阀：确认切分器未失效）──────
+    if chunks:
+        _lens = [len(c) for c in chunks]
+        _max_l = max(_lens)
+        _min_l = min(_lens)
+        _avg_l = sum(_lens) // len(_lens)
+        print(f"    Chunk 统计: 最小 {_min_l}  最大 {_max_l}  平均 {_avg_l}  上限 {CHUNK_SIZE}")
+        if _max_l > CHUNK_SIZE * 1.2:
+            print(f"    ⚠️ 警告: 存在超大 chunk ({_max_l} 字符)，超过 chunk_size 的 120%")
+        else:
+            print(f"    [OK] 全部 chunk 均在安全上限内")
 
     # 3. 构建元数据（基于 YAML entry）
     base_metadata = _build_metadata(entry)
