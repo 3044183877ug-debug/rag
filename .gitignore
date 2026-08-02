@@ -18,5 +18,8 @@ __pycache__/
 # 临时文件
 tempCodeRunnerFile.py
 
-# Chroma 数据库（本地向量库，如需上传请删除此行）
-# chroma_db/
+# Chroma 数据库（本地向量库，不纳入版本管理）
+chroma_db/
+
+# 运行时日志数据
+data/
