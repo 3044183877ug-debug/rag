@@ -685,6 +685,8 @@ def main():
                         help="随机种子（默认 42，保证可复现）")
     parser.add_argument("--ids", type=str, default="",
                         help="指定题目 ID（逗号分隔），如 'q01,q03,q143'。与 --sample 互斥")
+    parser.add_argument("--resume", action="store_true",
+                        help="断点续跑：跳过 val_results.json 中已完成的题目")
     args = parser.parse_args()
 
     # ── 加载用例 ──────────────────────────────────────────────────
@@ -740,22 +742,37 @@ def main():
     if args.sample > 0:
         print(f"(从全量 {len(load_test_cases(TEST_FILE))} 条中随机抽样, seed={args.seed})")
 
-    # ── 逐题评测 ──────────────────────────────────────────────────
-    results = []
+    # ── 断点续跑 ──────────────────────────────────────────────────
+    existing_results = {}  # id → record
+    if args.resume and OUTPUT_FILE.exists():
+        try:
+            prev = json.loads(OUTPUT_FILE.read_text(encoding="utf-8"))
+            for r in prev.get("results", []):
+                existing_results[r["id"]] = r
+            print(f"📂 从 {OUTPUT_FILE.name} 恢复，已完成 {len(existing_results)} 题")
+        except Exception:
+            pass
+
+    # ── 逐题评测（每题后增量保存）───────────────────────────────────
     for i, case in enumerate(cases, 1):
+        if case["id"] in existing_results:
+            continue
         record = evaluate_one(case, i, total)
-        results.append(record)
+        existing_results[case["id"]] = record
+        # 即时写入 JSON，断了也不丢
+        try:
+            all_records = list(existing_results.values())
+            summary = compute_summary(all_records)
+            with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+                json.dump({"summary": summary, "results": all_records}, f,
+                          ensure_ascii=False, indent=2)
+        except Exception:
+            pass
 
-    # ── 汇总 ──────────────────────────────────────────────────────
-    summary = compute_summary(results)
-
-    # ── 写入 Markdown 报告 ──────────────────────────────────────────
-    write_report(results, summary, REPORT_FILE)
-
-    # ── 同时保留 JSON 详细结果 ──────────────────────────────────────
-    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
-        json.dump({"summary": summary, "results": results}, f,
-                  ensure_ascii=False, indent=2)
+    # ── 最终汇总 & 报告 ─────────────────────────────────────────────
+    all_records = list(existing_results.values())
+    summary = compute_summary(all_records)
+    write_report(all_records, summary, REPORT_FILE)
     print(f"详细结果(JSON)已保存至: {OUTPUT_FILE}")
 
 
